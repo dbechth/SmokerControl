@@ -71,7 +71,7 @@ RunMode runMode = Setup;
 WiFiClient client;
 
 // Replace with your unique Thing Speak WRITE API KEY
-const char* tsapiKey = "OXMB6DTDS6D6VJYD";
+const char* tsapiKey = ""//"OXMB6DTDS6D6VJYD";
 const char* resource = "/update?api_key=";
 
 // Thing Speak API server 
