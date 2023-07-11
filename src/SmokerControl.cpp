@@ -32,6 +32,9 @@ constexpr auto ControllerName = "Smoker";
 
 int DamperSetpoint = 100;
 int ServoCMD;
+int prevServoCMD;
+int servoWriteTimer;
+bool servoUpdateRequired;
 bool autoMode = true;
 bool startup = true;
 bool shutdown = false;
@@ -420,7 +423,34 @@ void RunTasks()
 			ServoCMD = map(DamperSetpoint, 0, 100, minPW, maxPW);     // scale it to use it with the servo (value between 0 and 180)
 		}
 
-		InletDamper.write(ServoCMD);
+		if (ServoCMD == prevServoCMD)
+		{
+			servoWriteTimer++; //the servo command is the same as it was on the last timestep so we can increment the timer
+		}
+		else
+		{
+			servoWriteTimer = 0; //reset the timer because the command changed
+		}
+
+		if(servoWriteTimer == 0)
+		{
+			servoUpdateRequired = true;
+		}
+		else if(servoWriteTimer >= 5)//time in seconds for the servo to stay active
+		{
+			servoUpdateRequired = false;
+		}
+		
+		if(servoUpdateRequired)
+		{
+			InletDamper.attach(1);//D1);
+			InletDamper.write(ServoCMD);
+		}
+		else
+		{
+			InletDamper.detach();
+		}
+		prevServoCMD = ServoCMD;
 
 		Time1S = 25;
 		Serial.println(ThermostatControl.temperature);
@@ -503,7 +533,6 @@ void setup() {
 	timeNow = millis();
 	lastTime = timeNow;
 
-	InletDamper.attach(D1);
 }
 
 void loop() {
