@@ -443,7 +443,7 @@ void RunTasks()
 		
 		if(servoUpdateRequired)
 		{
-			InletDamper.attach(1);//D1);
+			InletDamper.attach(D1);
 			InletDamper.write(ServoCMD);
 		}
 		else
