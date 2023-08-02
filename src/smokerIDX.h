@@ -110,10 +110,27 @@ function addLastData(jsonfile) {
 	var setpointData = obj.SmokerData.map(function(e) {
 	   return e.setpoint;
 	});
+
+	var Probe1Data = obj.SmokerData.map(function(e) {
+	   return e.Probe1;
+	});
+	var Probe2Data = obj.SmokerData.map(function(e) {
+	   return e.Probe2;
+	});
+	var Probe3Data = obj.SmokerData.map(function(e) {
+	   return e.Probe3;
+	});
+	var Probe4Data = obj.SmokerData.map(function(e) {
+	   return e.Probe4;
+	});
     smokerChart.data.labels.push(xValues[0]);
     smokerChart.data.datasets[0].data.push(temperatureData[0]);
     smokerChart.data.datasets[1].data.push(damperPCTData[0]);
     smokerChart.data.datasets[2].data.push(setpointData[0]);
+	smokerChart.data.datasets[3].data.push(Probe1Data[0]);
+	smokerChart.data.datasets[4].data.push(Probe2Data[0]);
+	smokerChart.data.datasets[5].data.push(Probe3Data[0]);
+	smokerChart.data.datasets[6].data.push(Probe4Data[0]);
     smokerChart.update();	
 	lastIndex = xValues[0];
 	}
@@ -132,6 +149,19 @@ function addData(jsonfile) {
 
 	var setpointData = obj.SmokerData.map(function(e) {
 	   return e.setpoint;
+	});
+
+	var Probe1Data = obj.SmokerData.map(function(e) {
+	   return e.Probe1;
+	});
+	var Probe2Data = obj.SmokerData.map(function(e) {
+	   return e.Probe2;
+	});
+	var Probe3Data = obj.SmokerData.map(function(e) {
+	   return e.Probe3;
+	});
+	var Probe4Data = obj.SmokerData.map(function(e) {
+	   return e.Probe4;
 	});
 
 	var xValues = obj.SmokerData.map(function(e) {
@@ -161,6 +191,30 @@ data: {
 	  data: setpointData,
 	  label: 'Setpoint',
       borderColor: "blue",
+      fill: false,
+      yAxisID: 'A',
+	},{
+	  data: Probe1Data,
+	  label: 'Probe1',
+      borderColor: "orange",
+      fill: false,
+      yAxisID: 'A',
+	},{
+	  data: Probe2Data,
+	  label: 'Probe2',
+      borderColor: "yellow",
+      fill: false,
+      yAxisID: 'A',
+	},{
+	  data: Probe3Data,
+	  label: 'Probe3',
+      borderColor: "pink",
+      fill: false,
+      yAxisID: 'A',
+	},{
+	  data: Probe4Data,
+	  label: 'Probe4',
+      borderColor: "purple",
       fill: false,
       yAxisID: 'A',
     }]
@@ -207,7 +261,7 @@ function get(id) {
 			document.getElementById(id).value = this.responseText;
 		}
 	};
-	xhttp.open("GET", "get?" + id, true);
+	xhttp.open("GET", "get?" + id + "=-1", true);
 	xhttp.send();
 }
 function getChartData(id) {
@@ -217,7 +271,7 @@ function getChartData(id) {
 			addData(this.responseText);
 		}
 	};
-	xhttp.open("GET", "get?" + id, true);
+	xhttp.open("GET", "get?" + id + "=-1", true);
 	xhttp.send();
 }
 function getLastChartData(id) {
@@ -227,7 +281,7 @@ function getLastChartData(id) {
 			addLastData(this.responseText);
 		}
 	};
-	xhttp.open("GET", "get?" + id, true);
+	xhttp.open("GET", "get?" + id + "=-1", true);
 	xhttp.send();
 }
 
@@ -243,7 +297,7 @@ function setBtn(id) {
 			getBtn("startup");
 		}
 	};
-	xhttp.open("GET", "set?" + id, true);
+	xhttp.open("GET", "set?" + id + "=-1", true);
 	xhttp.send();
 
 }
@@ -262,7 +316,7 @@ function getBtn(id) {
 			}
 		}
 	};
-	xhttp.open("GET", "get?" + id, true);
+	xhttp.open("GET", "get?" + id + "=-1", true);
 	xhttp.send();
 }
 
