@@ -9,9 +9,12 @@
 #include "max6675.h"
 #include "smokerIDX.h"
 
-int thermoDO = D4;
-int thermoCS = D5;
-int thermoCLK = D6;
+//Inkbird stuff
+#include "InkbirdCom.h"
+
+int thermoDO = 12;//D4;
+int thermoCS = 13;//D5;
+int thermoCLK = 14;//D6;
 
 MAX6675 smokechamberthermocouple(thermoCLK, thermoCS, thermoDO);
 MAX6675 fireboxthermocouple(thermoCLK, thermoCS, thermoDO);
@@ -56,6 +59,10 @@ struct stChartData
 	int temperature;
 	int damperPCT;
 	int setpoint;
+	int Probe1;
+	int Probe2;
+	int Probe3;
+	int Probe4;
 };
 stChartData chartdata[1024];
 int chartdataIndex = 0;
@@ -69,16 +76,9 @@ enum RunMode
 RunMode runMode = Setup;
 
 //WiFi
-//char ssid[] = "";
-//char pass[] = "";
+char ssid[] = "";
+char pass[] = "";
 WiFiClient client;
-
-// Replace with your unique Thing Speak WRITE API KEY
-const char* tsapiKey = ""//"OXMB6DTDS6D6VJYD";
-const char* resource = "/update?api_key=";
-
-// Thing Speak API server 
-const char* server = "api.thingspeak.com";
 
 String BuildJSON(String paramName, int Value)
 {
@@ -99,7 +99,11 @@ void packChartData()
 			BuildJSON("index", i) + "," +
 			BuildJSON("temperature", chartdata[i].temperature) + "," +
 			BuildJSON("damperPCT", chartdata[i].damperPCT) + "," +
-			BuildJSON("setpoint", chartdata[i].setpoint) +
+			BuildJSON("setpoint", chartdata[i].setpoint) + "," +
+			BuildJSON("Probe1", chartdata[i].Probe1) + "," +
+			BuildJSON("Probe2", chartdata[i].Probe2) + "," +
+			BuildJSON("Probe3", chartdata[i].Probe3) + "," +
+			BuildJSON("Probe4", chartdata[i].Probe4) +
 			"}" ;
 	}
 	//tmpBuffer += file.read();
@@ -115,12 +119,16 @@ void packLastChartData()
 		idx = 0;
 	}
 	String tmpBuffer = "{\"SmokerData\":[";
-	tmpBuffer += "{" +
-		BuildJSON("index", idx) + "," +
-		BuildJSON("temperature", chartdata[idx].temperature) + "," +
-		BuildJSON("damperPCT", chartdata[idx].damperPCT) + "," +
-		BuildJSON("setpoint", chartdata[idx].setpoint) +
-		"}";
+		tmpBuffer += "{" +
+			BuildJSON("index", idx) + "," +
+			BuildJSON("temperature", chartdata[idx].temperature) + "," +
+			BuildJSON("damperPCT", chartdata[idx].damperPCT) + "," +
+			BuildJSON("setpoint", chartdata[idx].setpoint) + "," +
+			BuildJSON("Probe1", chartdata[idx].Probe1) + "," +
+			BuildJSON("Probe2", chartdata[idx].Probe2) + "," +
+			BuildJSON("Probe3", chartdata[idx].Probe3) + "," +
+			BuildJSON("Probe4", chartdata[idx].Probe4) +
+			"}" ;
 	tmpBuffer += "]}";
 
 	AC2.webserver.send(200, "text/plain", tmpBuffer);
@@ -349,6 +357,25 @@ void RunTasks()
 		lastTime = timeNow;
 		Time1S += elapsedTime;
 		Time1m += elapsedTime;
+			//ESP_LOGI("BBQ", "Doing a loop.");
+			// If the flag "doConnect" is true then we have scanned for and found the desired
+			// BLE Server with which we wish to connect.  Now we connect to it.  Once we are
+			// connected we set the connected flag to be true.
+
+			if (doConnect == true)
+			{
+				if (connectToBLEServer(*pServerAddress))
+				{
+				ESP_LOGI("BBQ", "We are now connected to the BLE Server.");
+				connected = true;
+				doConnect = false;// added to prevent searching a second time just to fail
+				}
+				else
+				{
+				ESP_LOGI("BBQ", "We have failed to connect to the server; there is nothin more we will do.");
+				}
+				doConnect = false;
+			}
 	}
 	if (Time1S >= Task1S) {
 		temperature = smokechamberthermocouple.readFahrenheit();
@@ -443,7 +470,7 @@ void RunTasks()
 		
 		if(servoUpdateRequired)
 		{
-			InletDamper.attach(D1);
+			InletDamper.attach(1);//D1);
 			InletDamper.write(ServoCMD);
 		}
 		else
@@ -453,25 +480,29 @@ void RunTasks()
 		prevServoCMD = ServoCMD;
 
 		Time1S = 25;
-		Serial.println(ThermostatControl.temperature);
+		//Serial.println(ThermostatControl.temperature);
 	}
 	if (Time1m >= Task1m) {
 		chartdata[chartdataIndex].temperature = ThermostatControl.temperature;
 		chartdata[chartdataIndex].setpoint = ThermostatControl.setpoint;
 		chartdata[chartdataIndex].damperPCT = DamperSetpoint;
-
+		chartdata[chartdataIndex].Probe1 = Probes[0];
+		chartdata[chartdataIndex].Probe2 = Probes[1];
+		chartdata[chartdataIndex].Probe3 = Probes[2];
+		chartdata[chartdataIndex].Probe4 = Probes[3];
 		chartdataIndex++;
+		
+		getBatteryData();
 
 		Time1m = 50;
 	}
 
 }
 
-
 void setup() {
 	//bool success = SPIFFS.begin();
 	Serial.begin(115200);
-	EEPROM.begin(512);
+	//EEPROM.begin(512);
 
 	WiFi.hostname(ControllerName);
 	WiFi.mode(WIFI_STA);
@@ -529,10 +560,22 @@ void setup() {
 
 	ThermostatControl.init(tempSetpoint, tempDeadband, ThermostatControl.HeatCool, &AC2.webserver);
 
+	setLogLevel();
+
+	ESP_LOGD("BBQ", "Scanning");
+	BLEDevice::init("");
+
+	// Retrieve a Scanner and set the callback we want to use to be informed when we
+	// have detected a new device.  Specify that we want active scanning and start the
+	// scan to run for 30 seconds.
+	BLEScan *pBLEScan = BLEDevice::getScan();
+	pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+	pBLEScan->setActiveScan(true);
+	pBLEScan->start(30);
+
 	//get started off right
 	timeNow = millis();
 	lastTime = timeNow;
-
 }
 
 void loop() {
