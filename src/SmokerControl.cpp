@@ -8,18 +8,22 @@
 #include <Servo.h>
 #include "max6675.h"
 #include "smokerIDX.h"
-
 //Inkbird stuff
 #include "InkbirdCom.h"
-
+if esp32
 int thermoDO = 12;//D4;
 int thermoCS = 13;//D5;
 int thermoCLK = 14;//D6;
+else
+int thermoDO = D4;
+int thermoCS = D5;
+int thermoCLK = D6;
 
 MAX6675 smokechamberthermocouple(thermoCLK, thermoCS, thermoDO);
-MAX6675 fireboxthermocouple(thermoCLK, thermoCS, thermoDO);
+MAX6675 fireboxthermocouple(thermoCLK, thermoCS2, thermoDO);
 
 Servo InletDamper;  // create servo object to control a servo
+Servo OutletDamper;  // create servo object to control a servo
 
 //OS
 #define Task100mS  100
@@ -32,12 +36,17 @@ unsigned long Time1m = 0;
 //File file;
 
 constexpr auto ControllerName = "Smoker";
+#define OutletDameperOpen 100
+#define OutletDameperClosed 0
 
 int DamperSetpoint = 100;
+int OutletDamperSetpoint = 100;
 int ServoCMD;
+int OutletServoCMD;
 int prevServoCMD;
 int servoWriteTimer;
 bool servoUpdateRequired;
+bool servoAttached;
 bool autoMode = true;
 bool startup = true;
 bool shutdown = false;
@@ -78,7 +87,16 @@ RunMode runMode = Setup;
 //WiFi
 char ssid[] = "";
 char pass[] = "";
+char APssid[] = "DBBSmoker";
+
 WiFiClient client;
+
+// Replace with your unique Thing Speak WRITE API KEY
+const char* tsapiKey = "";//"OXMB6DTDS6D6VJYD";
+const char* resource = "/update?api_key=";
+
+// Thing Speak API server 
+const char* server = "api.thingspeak.com";
 
 String BuildJSON(String paramName, int Value)
 {
@@ -349,6 +367,7 @@ void RunTasks()
 {
 
 	static float temperature = 0;
+	static float fireboxtemperature = 0;
 	AC2.task(); //This application manages its own taskrate.
 
 	timeNow = millis();
@@ -379,6 +398,9 @@ void RunTasks()
 	}
 	if (Time1S >= Task1S) {
 		temperature = smokechamberthermocouple.readFahrenheit();
+		fireboxtemperature = fireboxthermocouple.readFahrenheit();
+		//Serial.print("FireboxTemp: ");
+		//Serial.println(fireboxtemperature);
 
 		ThermostatControl.temperature = temperature;
 		ThermostatControl.task();
@@ -412,6 +434,7 @@ void RunTasks()
 					{
 						DamperSetpoint = DamperSetpoint + 5;
 					}
+					OutletDamperSetpoint = OutletDameperClosed;
 				}
 				else if (ThermostatControl.output == ThermostatControl.cmdCool)
 				{
@@ -424,11 +447,13 @@ void RunTasks()
 					{
 						DamperSetpoint = DamperSetpoint - 5;
 					}
+					OutletDamperSetpoint = OutletDameperOpen;
 				}
 				else
 				{
 					inIdle = true;
 					DamperSetpoint = idlePCT;
+					OutletDamperSetpoint = OutletDameperClosed;
 				}
 				if ((transIdleToHeat - transIdleToCool) >= autoIdleTuneThreshold)
 				{
@@ -446,8 +471,10 @@ void RunTasks()
 			else
 			{
 				DamperSetpoint = manualPCT;
+				OutletDamperSetpoint = manualPCT;
 			}
 			ServoCMD = map(DamperSetpoint, 0, 100, minPW, maxPW);     // scale it to use it with the servo (value between 0 and 180)
+			OutletServoCMD = map(OutletDamperSetpoint, 0, 100, 135, 30);     // scale it to use it with the servo (value between 0 and 180)
 		}
 
 		if (ServoCMD == prevServoCMD)
@@ -463,24 +490,41 @@ void RunTasks()
 		{
 			servoUpdateRequired = true;
 		}
-		else if(servoWriteTimer >= 5)//time in seconds for the servo to stay active
+		else if(servoWriteTimer >= 10)//time in seconds for the servo to stay active
 		{
-			servoUpdateRequired = false;
+			servoUpdateRequired = true;//false to enable the servo power down feature
 		}
 		
 		if(servoUpdateRequired)
 		{
-			InletDamper.attach(1);//D1);
+			if (!servoAttached)
+			{
+				if esp32
+				InletDamper.attach(1);//D1);
+				else
+				OutletDamper.attach(D2);
+				InletDamper.attach(D1);
+
+				servoAttached = true;
+			}
+			
 			InletDamper.write(ServoCMD);
+			OutletDamper.write(OutletServoCMD);
 		}
 		else
 		{
-			InletDamper.detach();
+			if (servoAttached)
+			{
+				InletDamper.detach();
+				OutletDamper.detach();
+				servoAttached = false;
+			}
+			
 		}
 		prevServoCMD = ServoCMD;
+		
 
 		Time1S = 25;
-		//Serial.println(ThermostatControl.temperature);
 	}
 	if (Time1m >= Task1m) {
 		chartdata[chartdataIndex].temperature = ThermostatControl.temperature;
@@ -505,20 +549,15 @@ void setup() {
 	//EEPROM.begin(512);
 
 	WiFi.hostname(ControllerName);
-	WiFi.mode(WIFI_STA);
+	WiFi.mode(WIFI_AP_STA);
 	WiFi.begin(ssid, pass);
-
-	while (WiFi.waitForConnectResult() != WL_CONNECTED) {
-		Serial.println("Connection Failed! Rebooting...");
-		delay(5000);
-		ESP.restart();
-	}
+	WiFi.softAP(APssid);
 
 	//these three web server calls handle all data within the webpage and can be found in the mainpage, get, and set, functions respectively
 	AC2.webserver.on("/", mainPage);
 	AC2.webserver.on("/get", get);
 	AC2.webserver.on("/set", set);
-
+	//Serial.println(WiFi.localIP());
 	AC2.init(ControllerName, WiFi.localIP(), IPADDR_BROADCAST, 4020, Task100mS);
 
 	float tempSetpoint = 225.0;
@@ -576,6 +615,8 @@ void setup() {
 	//get started off right
 	timeNow = millis();
 	lastTime = timeNow;
+	Serial.println("Starting");
+
 }
 
 void loop() {
