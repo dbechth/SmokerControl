@@ -8,16 +8,30 @@
 #include <Servo.h>
 #include "max6675.h"
 #include "smokerIDX.h"
-//Inkbird stuff
-#include "InkbirdCom.h"
-if esp32
-int thermoDO = 12;//D4;
-int thermoCS = 13;//D5;
-int thermoCLK = 14;//D6;
-else
-int thermoDO = D4;
-int thermoCS = D5;
-int thermoCLK = D6;
+#ifdef ARDUINO_ARCH_ESP32
+	#ifdef bluetoothProbe
+		//Inkbird stuff
+		#include "InkbirdCom.h"
+	#endif
+#endif
+
+#ifdef ARDUINO_ARCH_ESP32
+	int thermoDO = 12;
+	int thermoCS = 13;
+	int thermoCLK = 14;
+	int thermoCS2 = 15;
+	int pinInletDamper = 1;
+	int pinOutletDamper = 2;
+	constexpr auto ControllerName = "Smoker32";
+#else
+	int thermoDO = D4;
+	int thermoCS = D5;
+	int thermoCLK = D6;
+	int thermoCS2 = D3;
+	int pinInletDamper = D1;
+	int pinOutletDamper = D2;
+	constexpr auto ControllerName = "Smoker";
+#endif
 
 MAX6675 smokechamberthermocouple(thermoCLK, thermoCS, thermoDO);
 MAX6675 fireboxthermocouple(thermoCLK, thermoCS2, thermoDO);
@@ -35,7 +49,7 @@ unsigned long Time1S = 0;
 unsigned long Time1m = 0;
 //File file;
 
-constexpr auto ControllerName = "Smoker";
+
 #define OutletDameperOpen 100
 #define OutletDameperClosed 0
 
@@ -85,8 +99,8 @@ enum RunMode
 RunMode runMode = Setup;
 
 //WiFi
-char ssid[] = "";
-char pass[] = "";
+char ssid[] = "Bulldog";
+char pass[] = "6412108682";
 char APssid[] = "DBBSmoker";
 
 WiFiClient client;
@@ -374,13 +388,13 @@ void RunTasks()
 	unsigned long elapsedTime = timeNow - lastTime;
 	if (elapsedTime >= Task100mS) {
 		lastTime = timeNow;
-		Time1S += elapsedTime;
-		Time1m += elapsedTime;
+		//Time1S += elapsedTime;
+		//Time1m += elapsedTime;
 			//ESP_LOGI("BBQ", "Doing a loop.");
 			// If the flag "doConnect" is true then we have scanned for and found the desired
 			// BLE Server with which we wish to connect.  Now we connect to it.  Once we are
 			// connected we set the connected flag to be true.
-
+#ifdef bluetoothProbe
 			if (doConnect == true)
 			{
 				if (connectToBLEServer(*pServerAddress))
@@ -395,6 +409,7 @@ void RunTasks()
 				}
 				doConnect = false;
 			}
+#endif
 	}
 	if (Time1S >= Task1S) {
 		temperature = smokechamberthermocouple.readFahrenheit();
@@ -499,11 +514,13 @@ void RunTasks()
 		{
 			if (!servoAttached)
 			{
-				if esp32
-				InletDamper.attach(1);//D1);
-				else
-				OutletDamper.attach(D2);
-				InletDamper.attach(D1);
+				#ifdef ARDUINO_ARCH_ESP32
+				InletDamper.attach(pinInletDamper);
+				OutletDamper.attach(pinOutletDamper);
+				#else
+				InletDamper.attach(pinInletDamper);
+				OutletDamper.attach(pinOutletDamper);
+				#endif
 
 				servoAttached = true;
 			}
@@ -530,14 +547,14 @@ void RunTasks()
 		chartdata[chartdataIndex].temperature = ThermostatControl.temperature;
 		chartdata[chartdataIndex].setpoint = ThermostatControl.setpoint;
 		chartdata[chartdataIndex].damperPCT = DamperSetpoint;
-		chartdata[chartdataIndex].Probe1 = Probes[0];
-		chartdata[chartdataIndex].Probe2 = Probes[1];
-		chartdata[chartdataIndex].Probe3 = Probes[2];
-		chartdata[chartdataIndex].Probe4 = Probes[3];
+		#ifdef bluetoothProbe
+			chartdata[chartdataIndex].Probe1 = Probes[0];
+			chartdata[chartdataIndex].Probe2 = Probes[1];
+			chartdata[chartdataIndex].Probe3 = Probes[2];
+			chartdata[chartdataIndex].Probe4 = Probes[3];
+			getBatteryData();
+		#endif
 		chartdataIndex++;
-		
-		getBatteryData();
-
 		Time1m = 50;
 	}
 
@@ -547,17 +564,19 @@ void setup() {
 	//bool success = SPIFFS.begin();
 	Serial.begin(115200);
 	//EEPROM.begin(512);
+	Serial.println("Starting");
 
 	WiFi.hostname(ControllerName);
 	WiFi.mode(WIFI_AP_STA);
 	WiFi.begin(ssid, pass);
-	WiFi.softAP(APssid);
+	//WiFi.softAP(APssid);
 
 	//these three web server calls handle all data within the webpage and can be found in the mainpage, get, and set, functions respectively
 	AC2.webserver.on("/", mainPage);
 	AC2.webserver.on("/get", get);
 	AC2.webserver.on("/set", set);
-	//Serial.println(WiFi.localIP());
+	delay(5000);
+	Serial.println(WiFi.localIP());
 	AC2.init(ControllerName, WiFi.localIP(), IPADDR_BROADCAST, 4020, Task100mS);
 
 	float tempSetpoint = 225.0;
@@ -599,6 +618,7 @@ void setup() {
 
 	ThermostatControl.init(tempSetpoint, tempDeadband, ThermostatControl.HeatCool, &AC2.webserver);
 
+#ifdef bluetoothProbe
 	setLogLevel();
 
 	ESP_LOGD("BBQ", "Scanning");
@@ -611,12 +631,10 @@ void setup() {
 	pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
 	pBLEScan->setActiveScan(true);
 	pBLEScan->start(30);
-
+#endif
 	//get started off right
 	timeNow = millis();
 	lastTime = timeNow;
-	Serial.println("Starting");
-
 }
 
 void loop() {
