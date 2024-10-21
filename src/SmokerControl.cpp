@@ -8,30 +8,29 @@
 #include <Servo.h>
 #include "max6675.h"
 #include "smokerIDX.h"
+//#define bluetoothProbe
 #ifdef ARDUINO_ARCH_ESP32
 	#ifdef bluetoothProbe
 		//Inkbird stuff
 		#include "InkbirdCom.h"
+		BLEScan *pBLEScan;
+	#else
+		#define CONFIG_LOG_DEFAULT_LEVEL ESP_LOG_NONE
+		#define LOG_LOCAL_LEVEL ESP_LOG_NONE
 	#endif
 #endif
 
 #ifdef ARDUINO_ARCH_ESP32
-	int thermoDO = 12;
-	int thermoCS = 13;
-	int thermoCLK = 14;
-	int thermoCS2 = 15;
-	int pinInletDamper = 1;
-	int pinOutletDamper = 2;
 	constexpr auto ControllerName = "Smoker32";
 #else
-	int thermoDO = D4;
-	int thermoCS = D5;
-	int thermoCLK = D6;
-	int thermoCS2 = D3;
-	int pinInletDamper = D1;
-	int pinOutletDamper = D2;
 	constexpr auto ControllerName = "Smoker";
 #endif
+int thermoDO = D4;
+int thermoCS = D5;
+int thermoCLK = D6;
+int thermoCS2 = D3;
+int pinInletDamper = D1;
+int pinOutletDamper = D2;
 
 MAX6675 smokechamberthermocouple(thermoCLK, thermoCS, thermoDO);
 MAX6675 fireboxthermocouple(thermoCLK, thermoCS2, thermoDO);
@@ -132,10 +131,12 @@ void packChartData()
 			BuildJSON("temperature", chartdata[i].temperature) + "," +
 			BuildJSON("damperPCT", chartdata[i].damperPCT) + "," +
 			BuildJSON("setpoint", chartdata[i].setpoint) + "," +
-			BuildJSON("Probe1", chartdata[i].Probe1) + "," +
-			BuildJSON("Probe2", chartdata[i].Probe2) + "," +
-			BuildJSON("Probe3", chartdata[i].Probe3) + "," +
-			BuildJSON("Probe4", chartdata[i].Probe4) +
+			#ifdef bluetoothProbe
+				BuildJSON("Probe1", chartdata[i].Probe1) + "," +
+				BuildJSON("Probe2", chartdata[i].Probe2) + "," +
+				BuildJSON("Probe3", chartdata[i].Probe3) + "," +
+				BuildJSON("Probe4", chartdata[i].Probe4) +
+			#endif
 			"}" ;
 	}
 	//tmpBuffer += file.read();
@@ -156,10 +157,12 @@ void packLastChartData()
 			BuildJSON("temperature", chartdata[idx].temperature) + "," +
 			BuildJSON("damperPCT", chartdata[idx].damperPCT) + "," +
 			BuildJSON("setpoint", chartdata[idx].setpoint) + "," +
-			BuildJSON("Probe1", chartdata[idx].Probe1) + "," +
-			BuildJSON("Probe2", chartdata[idx].Probe2) + "," +
-			BuildJSON("Probe3", chartdata[idx].Probe3) + "," +
-			BuildJSON("Probe4", chartdata[idx].Probe4) +
+			#ifdef bluetoothProbe
+				BuildJSON("Probe1", chartdata[idx].Probe1) + "," +
+				BuildJSON("Probe2", chartdata[idx].Probe2) + "," +
+				BuildJSON("Probe3", chartdata[idx].Probe3) + "," +
+				BuildJSON("Probe4", chartdata[idx].Probe4) +
+			#endif
 			"}" ;
 	tmpBuffer += "]}";
 
@@ -178,7 +181,7 @@ void get()
 	{
 		if (AC2.webserver.hasArg("smokerTemp"))
 		{
-			AC2.webserver.send(200, "text/plain", String(ThermostatControl.temperature, 2));
+			AC2.webserver.send(200, "text/plain", String(smokechamberThermostat.temperature, 2));
 		}
 		else if (AC2.webserver.hasArg("damperPCT"))
 		{
@@ -202,11 +205,11 @@ void get()
 		}
 		else if (AC2.webserver.hasArg("setPointF"))
 		{
-			AC2.webserver.send(200, "text/plain", String(ThermostatControl.setpoint));
+			AC2.webserver.send(200, "text/plain", String(smokechamberThermostat.setpoint));
 		}
 		else if (AC2.webserver.hasArg("setPointDeadband"))
 		{
-			AC2.webserver.send(200, "text/plain", String(ThermostatControl.hysteresis));
+			AC2.webserver.send(200, "text/plain", String(smokechamberThermostat.hysteresis));
 		}
 		else if (AC2.webserver.hasArg("hotPCT"))
 		{
@@ -295,16 +298,16 @@ void set()
 		}
 		else if (AC2.webserver.hasArg("setPointF"))
 		{
-			ThermostatControl.setpoint = AC2.webserver.arg("setPointF").toFloat();
+			smokechamberThermostat.setpoint = AC2.webserver.arg("setPointF").toFloat();
 
-			uint8_t tempvar = (uint8_t)(ThermostatControl.setpoint / 10.0);
+			uint8_t tempvar = (uint8_t)(smokechamberThermostat.setpoint / 10.0);
 			EEPROM.write(0, tempvar);
 			EEPROM.commit();
 		}
 		else if (AC2.webserver.hasArg("setPointDeadband"))
 		{
-			ThermostatControl.hysteresis = AC2.webserver.arg("setPointDeadband").toFloat();
-			uint8_t tempvar = (uint8_t)(ThermostatControl.hysteresis * 10.0);
+			smokechamberThermostat.hysteresis = AC2.webserver.arg("setPointDeadband").toFloat();
+			uint8_t tempvar = (uint8_t)(smokechamberThermostat.hysteresis * 10.0);
 			EEPROM.write(1, tempvar);
 			EEPROM.commit();
 		}
@@ -380,16 +383,16 @@ boolean RunInit()
 void RunTasks()
 {
 
-	static float temperature = 0;
-	static float fireboxtemperature = 0;
+	static float smokechamberTemperature = 0;
+	static float fireboxTemperature = 0;
 	AC2.task(); //This application manages its own taskrate.
 
 	timeNow = millis();
 	unsigned long elapsedTime = timeNow - lastTime;
 	if (elapsedTime >= Task100mS) {
 		lastTime = timeNow;
-		//Time1S += elapsedTime;
-		//Time1m += elapsedTime;
+		Time1S += elapsedTime;
+		Time1m += elapsedTime;
 			//ESP_LOGI("BBQ", "Doing a loop.");
 			// If the flag "doConnect" is true then we have scanned for and found the desired
 			// BLE Server with which we wish to connect.  Now we connect to it.  Once we are
@@ -412,18 +415,19 @@ void RunTasks()
 #endif
 	}
 	if (Time1S >= Task1S) {
-		temperature = smokechamberthermocouple.readFahrenheit();
-		fireboxtemperature = fireboxthermocouple.readFahrenheit();
-		//Serial.print("FireboxTemp: ");
-		//Serial.println(fireboxtemperature);
+		smokechamberTemperature = smokechamberthermocouple.readFahrenheit();
+		fireboxTemperature = fireboxthermocouple.readFahrenheit();
+		Serial.print("SmokeTemp: ");
+		Serial.println(smokechamberTemperature);
+		Serial.print("FireboxTemp: ");
+		Serial.println(fireboxTemperature);
 
-		ThermostatControl.temperature = temperature;
-		ThermostatControl.task();
+		smokechamberThermostat.task(smokechamberTemperature);
 
 		if (startup)
 		{
 			ServoCMD = maxPW;
-			if (ThermostatControl.temperature >= (ThermostatControl.setpoint + preheatOffset))
+			if (smokechamberThermostat.temperature >= (smokechamberThermostat.setpoint + preheatOffset))
 			{
 				startup = false;
 				shutdown = false;
@@ -438,7 +442,7 @@ void RunTasks()
 			if (autoMode)
 			{
 
-				if (ThermostatControl.output == ThermostatControl.cmdHeat)
+				if (smokechamberThermostat.output == smokechamberThermostat.cmdHeat)
 				{
 					if (inIdle)
 					{
@@ -451,7 +455,7 @@ void RunTasks()
 					}
 					OutletDamperSetpoint = OutletDameperClosed;
 				}
-				else if (ThermostatControl.output == ThermostatControl.cmdCool)
+				else if (smokechamberThermostat.output == smokechamberThermostat.cmdCool)
 				{
 					if (inIdle)
 					{
@@ -514,13 +518,8 @@ void RunTasks()
 		{
 			if (!servoAttached)
 			{
-				#ifdef ARDUINO_ARCH_ESP32
 				InletDamper.attach(pinInletDamper);
 				OutletDamper.attach(pinOutletDamper);
-				#else
-				InletDamper.attach(pinInletDamper);
-				OutletDamper.attach(pinOutletDamper);
-				#endif
 
 				servoAttached = true;
 			}
@@ -544,8 +543,8 @@ void RunTasks()
 		Time1S = 25;
 	}
 	if (Time1m >= Task1m) {
-		chartdata[chartdataIndex].temperature = ThermostatControl.temperature;
-		chartdata[chartdataIndex].setpoint = ThermostatControl.setpoint;
+		chartdata[chartdataIndex].temperature = smokechamberThermostat.temperature;
+		chartdata[chartdataIndex].setpoint = smokechamberThermostat.setpoint;
 		chartdata[chartdataIndex].damperPCT = DamperSetpoint;
 		#ifdef bluetoothProbe
 			chartdata[chartdataIndex].Probe1 = Probes[0];
@@ -563,13 +562,13 @@ void RunTasks()
 void setup() {
 	//bool success = SPIFFS.begin();
 	Serial.begin(115200);
-	//EEPROM.begin(512);
+	EEPROM.begin(512);
 	Serial.println("Starting");
 
 	WiFi.hostname(ControllerName);
 	WiFi.mode(WIFI_AP_STA);
 	WiFi.begin(ssid, pass);
-	//WiFi.softAP(APssid);
+	WiFi.softAP(APssid);
 
 	//these three web server calls handle all data within the webpage and can be found in the mainpage, get, and set, functions respectively
 	AC2.webserver.on("/", mainPage);
@@ -583,9 +582,12 @@ void setup() {
 	float tempDeadband = 5.0;
 	bool resetDefaults = EEPROM.read(10);
 
+	
+
 
 	if (resetDefaults)
 	{
+		Serial.println("Loading default settings...");
 		uint8_t tempvar = (uint8_t)(tempSetpoint / 10.0);
 		EEPROM.write(0, tempvar);
 		tempvar = (uint8_t)(tempDeadband * 10.0);
@@ -603,7 +605,7 @@ void setup() {
 	}
 	else
 	{
-		//get all defaults from EE
+		Serial.println("Loading previous settings...");
 		tempSetpoint = EEPROM.read(0) * 10.0;
 		tempDeadband = EEPROM.read(1) / 10.0;
 		hotPCT = EEPROM.read(2);
@@ -616,7 +618,7 @@ void setup() {
 		autoIdleTuneThreshold = EEPROM.read(9);
 	}
 
-	ThermostatControl.init(tempSetpoint, tempDeadband, ThermostatControl.HeatCool, &AC2.webserver);
+	smokechamberThermostat.init(tempSetpoint, tempDeadband, smokechamberThermostat.HeatCool, &AC2.webserver);
 
 #ifdef bluetoothProbe
 	setLogLevel();
@@ -627,7 +629,7 @@ void setup() {
 	// Retrieve a Scanner and set the callback we want to use to be informed when we
 	// have detected a new device.  Specify that we want active scanning and start the
 	// scan to run for 30 seconds.
-	BLEScan *pBLEScan = BLEDevice::getScan();
+	pBLEScan = BLEDevice::getScan();
 	pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
 	pBLEScan->setActiveScan(true);
 	pBLEScan->start(30);
