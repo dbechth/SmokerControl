@@ -75,6 +75,7 @@ int minPW = 40;
 int maxPW = 120;
 int preheatOffset = 50;
 int autoIdleTuneThreshold = 2;
+float filteredSmokeChanmberTemp = 0;
 
 struct stChartData
 {
@@ -417,12 +418,16 @@ void RunTasks()
 	if (Time1S >= Task1S) {
 		smokechamberTemperature = smokechamberthermocouple.readFahrenheit();
 		fireboxTemperature = fireboxthermocouple.readFahrenheit();
-		Serial.print("SmokeTemp: ");
-		Serial.println(smokechamberTemperature);
-		Serial.print("FireboxTemp: ");
-		Serial.println(fireboxTemperature);
+		AC2.print("SmokeTemp: ");
+		AC2.println(String(smokechamberTemperature));
+		AC2.print("FireboxTemp: ");
+		AC2.println(String(fireboxTemperature));
+		//AC2.print("ResetReason: ");
+		//AC2.println(String((u16_t)esp_reset_reason));
 
-		smokechamberThermostat.task(smokechamberTemperature);
+		filteredSmokeChanmberTemp = ((smokechamberTemperature * 0.05) + (filteredSmokeChanmberTemp * 0.95));
+		smokechamberThermostat.temperature =  filteredSmokeChanmberTemp;
+		smokechamberThermostat.task();
 
 		if (startup)
 		{
@@ -563,7 +568,7 @@ void setup() {
 	//bool success = SPIFFS.begin();
 	Serial.begin(115200);
 	EEPROM.begin(512);
-	Serial.println("Starting");
+	AC2.println("Starting");
 
 	WiFi.hostname(ControllerName);
 	WiFi.mode(WIFI_AP_STA);
@@ -575,7 +580,7 @@ void setup() {
 	AC2.webserver.on("/get", get);
 	AC2.webserver.on("/set", set);
 	delay(5000);
-	Serial.println(WiFi.localIP());
+	Serial1.println(WiFi.localIP());
 	AC2.init(ControllerName, WiFi.localIP(), IPADDR_BROADCAST, 4020, Task100mS);
 
 	float tempSetpoint = 225.0;
@@ -587,7 +592,7 @@ void setup() {
 
 	if (resetDefaults)
 	{
-		Serial.println("Loading default settings...");
+		AC2.println("Loading default settings...");
 		uint8_t tempvar = (uint8_t)(tempSetpoint / 10.0);
 		EEPROM.write(0, tempvar);
 		tempvar = (uint8_t)(tempDeadband * 10.0);
@@ -605,7 +610,7 @@ void setup() {
 	}
 	else
 	{
-		Serial.println("Loading previous settings...");
+		AC2.println("Loading previous settings...");
 		tempSetpoint = EEPROM.read(0) * 10.0;
 		tempDeadband = EEPROM.read(1) / 10.0;
 		hotPCT = EEPROM.read(2);
