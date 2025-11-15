@@ -582,7 +582,7 @@ void setup() {
 	AC2.println("Starting");
 
 	WiFi.hostname(ControllerName);
-	WiFi.mode(WIFI_STA);
+	WiFi.mode(WIFI_AP_STA);
 	WiFi.begin(ssid, pass);
 	//WiFi.softAP(APssid);
 
