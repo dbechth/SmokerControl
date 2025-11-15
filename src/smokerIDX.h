@@ -10,10 +10,10 @@ const char smokerIDX[] PROGMEM = R"=====(
 CONTROLLER</h1>
 
 <div align = "center">Smoker Temp : <span id = "smokerTemp"> ? </span>&#176;F</div>
+<div align = "center">Firebox Temp : <span id = "fireboxTemp"> ? </span>&#176;F</div> <!-- New Firebox Temp display -->
 <div align = "center">Damper: <span id = "damperPCT"> ? </span>% </div>
 <div align = "center">Cold Transitions: <span id = "transIdleToCool"> ? </span>% </div>
 <div align = "center">Hot Transitions: <span id = "transIdleToHeat"> ? </span>% </div>
-<canvas id="SmokerChart" style="width:100%"></canvas>
 
 <div align = "center"> <button type = "button" style = "font-size:40px; height:100px; width:25%; background-color:#CB2717" id = "autoON" onClick = "setBtn(this.id)">Auto</button>
 <button type = "button" style = "font-size:40px; height:100px; width:25%; background-color:#CB2717" id = "manualON" onClick = "setBtn(this.id)">Manual</button></div>
@@ -76,9 +76,6 @@ CONTROLLER</h1>
 <button type = "button" style = "font-size:40px; height:80px; width:20%" onClick = "set(&quot;resetDefaults&quot;)">Set</button></div>
 
 <script>
-
-
-var smokerChart;
 var lastIndex = -1;
 setInterval(function() {
 	getBtn("autoON");
@@ -86,105 +83,11 @@ setInterval(function() {
 	getBtn("shutdown");
 	getBtn("startup");
 	get("smokerTemp");
+	get("fireboxTemp"); // New Firebox Temp fetch
 	get("transIdleToCool");
 	get("transIdleToHeat");
 	get("damperPCT");
-	getLastChartData("lastchartdata");
 }, 5000);
-
-function addLastData(jsonfile) {
-	var obj = JSON.parse(jsonfile);
-
-	var xValues = obj.SmokerData.map(function(e) {
-	   return e.index;
-	});
-
-	if(lastIndex != xValues[0]){
-	var temperatureData = obj.SmokerData.map(function(e) {
-	   return e.temperature;
-	});
-	var damperPCTData = obj.SmokerData.map(function(e) {
-	   return e.damperPCT;
-	});
-
-	var setpointData = obj.SmokerData.map(function(e) {
-	   return e.setpoint;
-	});
-    smokerChart.data.labels.push(xValues[0]);
-    smokerChart.data.datasets[0].data.push(temperatureData[0]);
-    smokerChart.data.datasets[1].data.push(damperPCTData[0]);
-    smokerChart.data.datasets[2].data.push(setpointData[0]);
-    smokerChart.update();	
-	lastIndex = xValues[0];
-	}
-
-
-}
-
-function addData(jsonfile) {
-	var obj = JSON.parse(jsonfile);
-	var temperatureData = obj.SmokerData.map(function(e) {
-	   return e.temperature;
-	});
-	var damperPCTData = obj.SmokerData.map(function(e) {
-	   return e.damperPCT;
-	});
-
-	var setpointData = obj.SmokerData.map(function(e) {
-	   return e.setpoint;
-	});
-
-	var xValues = obj.SmokerData.map(function(e) {
-	   return e.index;
-	});
-	lastIndex = xValues[xValues.length-1];
-
-var ctx = document.getElementById("SmokerChart");
-	
-smokerChart = new Chart(ctx, {
-  type: "line",
-data: {
-    labels: xValues,
-    datasets: [{
-	  data: temperatureData,
-	  label: 'Temperature',
-      borderColor: "red",
-      fill: false,
-      yAxisID: 'A',
-    },{
-	  data: damperPCTData,
-	  label: 'Damper Percent',
-      borderColor: "green",
-      fill: false,
-      yAxisID: 'B',
-    },{
-	  data: setpointData,
-	  label: 'Setpoint',
-      borderColor: "blue",
-      fill: false,
-      yAxisID: 'A',
-    }]
-  },
-   options: {
-    scales: {
-      yAxes: [{
-        id: 'A',
-        type: 'linear',
-        position: 'left',
-      }, {
-        id: 'B',
-        type: 'linear',
-        position: 'right',
-        ticks: {
-          max: 100,
-          min: 0
-        }
-      }]
-    }
-  }
-}
-);
-}
 
 function set(id) {
 	var xhttp = new XMLHttpRequest();
@@ -197,8 +100,8 @@ function set(id) {
 	};
 	xhttp.open("GET", "set?" + id + "=" + value, true);
 	xhttp.send();
-
 }
+
 function get(id) {
 	var xhttp = new XMLHttpRequest();
 	xhttp.onreadystatechange = function() {
@@ -207,27 +110,7 @@ function get(id) {
 			document.getElementById(id).value = this.responseText;
 		}
 	};
-	xhttp.open("GET", "get?" + id, true);
-	xhttp.send();
-}
-function getChartData(id) {
-	var xhttp = new XMLHttpRequest();
-	xhttp.onreadystatechange = function() {
-		if (this.readyState == 4 && this.status == 200) {
-			addData(this.responseText);
-		}
-	};
-	xhttp.open("GET", "get?" + id, true);
-	xhttp.send();
-}
-function getLastChartData(id) {
-	var xhttp = new XMLHttpRequest();
-	xhttp.onreadystatechange = function() {
-		if (this.readyState == 4 && this.status == 200) {
-			addLastData(this.responseText);
-		}
-	};
-	xhttp.open("GET", "get?" + id, true);
+	xhttp.open("GET", "get?" + id + "=-1", true);
 	xhttp.send();
 }
 
@@ -243,10 +126,10 @@ function setBtn(id) {
 			getBtn("startup");
 		}
 	};
-	xhttp.open("GET", "set?" + id, true);
+	xhttp.open("GET", "set?" + id + "=-1", true);
 	xhttp.send();
-
 }
+
 function getBtn(id) {
 	var xhttp = new XMLHttpRequest();
 	xhttp.onreadystatechange = function() {
@@ -262,12 +145,12 @@ function getBtn(id) {
 			}
 		}
 	};
-	xhttp.open("GET", "get?" + id, true);
+	xhttp.open("GET", "get?" + id + "=-1", true);
 	xhttp.send();
 }
 
-getChartData("chartdata");
 get("smokerTemp");
+get("fireboxTemp"); // New Firebox Temp fetch
 get("damperPCT");
 get("transIdleToCool");
 get("transIdleToHeat");
