@@ -1,4 +1,3 @@
-
 #include <EEPROM.h>
 #include "ThermostatControl.h"
 #include "AC2.h"
@@ -32,8 +31,10 @@ int thermoCS2 = D3;
 int pinInletDamper = D1;
 int pinOutletDamper = D2;
 
-MAX6675 smokechamberthermocouple(thermoCLK, thermoCS, thermoDO);
-MAX6675 fireboxthermocouple(thermoCLK, thermoCS2, thermoDO);
+MAX6675 smokechamberthermocouple(thermoCLK, thermoCS2, thermoDO);
+MAX6675 fireboxthermocouple(thermoCLK, thermoCS, thermoDO);
+static float smokechamberTemperature = 0;
+static float fireboxTemperature = 0;
 
 Servo InletDamper;  // create servo object to control a servo
 Servo OutletDamper;  // create servo object to control a servo
@@ -61,7 +62,7 @@ int servoWriteTimer;
 bool servoUpdateRequired;
 bool servoAttached;
 bool autoMode = true;
-bool startup = true;
+bool startup;
 bool shutdown = false;
 bool inIdle = false;
 int transIdleToHeat = 0;
@@ -76,6 +77,8 @@ int maxPW = 120;
 int preheatOffset = 50;
 int autoIdleTuneThreshold = 2;
 float filteredSmokeChanmberTemp = 0;
+// Function prototype for isLidOpen
+bool isLidOpen();
 
 struct stChartData
 {
@@ -182,7 +185,11 @@ void get()
 	{
 		if (AC2.webserver.hasArg("smokerTemp"))
 		{
-			AC2.webserver.send(200, "text/plain", String(smokechamberThermostat.temperature, 2));
+			AC2.webserver.send(200, "text/plain", String(ThermostatControl.temperature, 2));
+		}
+		else if (AC2.webserver.hasArg("fireboxTemp"))
+		{
+			AC2.webserver.send(200, "text/plain", String(fireboxTemperature, 2));
 		}
 		else if (AC2.webserver.hasArg("damperPCT"))
 		{
@@ -206,11 +213,11 @@ void get()
 		}
 		else if (AC2.webserver.hasArg("setPointF"))
 		{
-			AC2.webserver.send(200, "text/plain", String(smokechamberThermostat.setpoint));
+			AC2.webserver.send(200, "text/plain", String(ThermostatControl.setpoint));
 		}
 		else if (AC2.webserver.hasArg("setPointDeadband"))
 		{
-			AC2.webserver.send(200, "text/plain", String(smokechamberThermostat.hysteresis));
+			AC2.webserver.send(200, "text/plain", String(ThermostatControl.hysteresis));
 		}
 		else if (AC2.webserver.hasArg("hotPCT"))
 		{
@@ -299,16 +306,16 @@ void set()
 		}
 		else if (AC2.webserver.hasArg("setPointF"))
 		{
-			smokechamberThermostat.setpoint = AC2.webserver.arg("setPointF").toFloat();
+			ThermostatControl.setpoint = AC2.webserver.arg("setPointF").toFloat();
 
-			uint8_t tempvar = (uint8_t)(smokechamberThermostat.setpoint / 10.0);
+			uint8_t tempvar = (uint8_t)(ThermostatControl.setpoint / 10.0);
 			EEPROM.write(0, tempvar);
 			EEPROM.commit();
 		}
 		else if (AC2.webserver.hasArg("setPointDeadband"))
 		{
-			smokechamberThermostat.hysteresis = AC2.webserver.arg("setPointDeadband").toFloat();
-			uint8_t tempvar = (uint8_t)(smokechamberThermostat.hysteresis * 10.0);
+			ThermostatControl.hysteresis = AC2.webserver.arg("setPointDeadband").toFloat();
+			uint8_t tempvar = (uint8_t)(ThermostatControl.hysteresis * 10.0);
 			EEPROM.write(1, tempvar);
 			EEPROM.commit();
 		}
@@ -383,9 +390,6 @@ boolean RunInit()
 
 void RunTasks()
 {
-
-	static float smokechamberTemperature = 0;
-	static float fireboxTemperature = 0;
 	AC2.task(); //This application manages its own taskrate.
 
 	timeNow = millis();
@@ -422,17 +426,18 @@ void RunTasks()
 		AC2.println(String(smokechamberTemperature));
 		AC2.print("FireboxTemp: ");
 		AC2.println(String(fireboxTemperature));
-		//AC2.print("ResetReason: ");
-		//AC2.println(String((u16_t)esp_reset_reason));
 
 		filteredSmokeChanmberTemp = ((smokechamberTemperature * 0.05) + (filteredSmokeChanmberTemp * 0.95));
-		smokechamberThermostat.temperature =  filteredSmokeChanmberTemp;
-		smokechamberThermostat.task();
+		ThermostatControl.temperature =  filteredSmokeChanmberTemp;
+		ThermostatControl.task();
+
+		bool lidOpen = false;//isLidOpen();
 
 		if (startup)
 		{
 			ServoCMD = maxPW;
-			if (smokechamberThermostat.temperature >= (smokechamberThermostat.setpoint + preheatOffset))
+			OutletServoCMD = OutletDameperOpen;
+			if (ThermostatControl.temperature >= (ThermostatControl.setpoint + preheatOffset))
 			{
 				startup = false;
 				shutdown = false;
@@ -441,13 +446,19 @@ void RunTasks()
 		else if (shutdown)
 		{
 			ServoCMD = minPW;
+			OutletServoCMD = OutletDameperClosed;
 		}
 		else
 		{
-			if (autoMode)
+			if (lidOpen)
+			{
+				ServoCMD = minPW;
+				OutletServoCMD = OutletDameperClosed;
+			}
+			else if (autoMode)
 			{
 
-				if (smokechamberThermostat.output == smokechamberThermostat.cmdHeat)
+				if (ThermostatControl.output == ThermostatControl.cmdHeat)
 				{
 					if (inIdle)
 					{
@@ -460,7 +471,7 @@ void RunTasks()
 					}
 					OutletDamperSetpoint = OutletDameperClosed;
 				}
-				else if (smokechamberThermostat.output == smokechamberThermostat.cmdCool)
+				else if (ThermostatControl.output == ThermostatControl.cmdCool)
 				{
 					if (inIdle)
 					{
@@ -548,8 +559,8 @@ void RunTasks()
 		Time1S = 25;
 	}
 	if (Time1m >= Task1m) {
-		chartdata[chartdataIndex].temperature = smokechamberThermostat.temperature;
-		chartdata[chartdataIndex].setpoint = smokechamberThermostat.setpoint;
+		chartdata[chartdataIndex].temperature = ThermostatControl.temperature;
+		chartdata[chartdataIndex].setpoint = ThermostatControl.setpoint;
 		chartdata[chartdataIndex].damperPCT = DamperSetpoint;
 		#ifdef bluetoothProbe
 			chartdata[chartdataIndex].Probe1 = Probes[0];
@@ -571,24 +582,22 @@ void setup() {
 	AC2.println("Starting");
 
 	WiFi.hostname(ControllerName);
-	WiFi.mode(WIFI_AP_STA);
+	WiFi.mode(WIFI_STA);
 	WiFi.begin(ssid, pass);
-	WiFi.softAP(APssid);
+	//WiFi.softAP(APssid);
 
 	//these three web server calls handle all data within the webpage and can be found in the mainpage, get, and set, functions respectively
 	AC2.webserver.on("/", mainPage);
 	AC2.webserver.on("/get", get);
 	AC2.webserver.on("/set", set);
 	delay(5000);
-	Serial1.println(WiFi.localIP());
+	Serial.println(WiFi.localIP());
 	AC2.init(ControllerName, WiFi.localIP(), IPADDR_BROADCAST, 4020, Task100mS);
 
 	float tempSetpoint = 225.0;
 	float tempDeadband = 5.0;
 	bool resetDefaults = EEPROM.read(10);
-
-	
-
+	startup = smokechamberthermocouple.readFahrenheit() < 100; //if the smoker is cold, start in startup mode
 
 	if (resetDefaults)
 	{
@@ -623,7 +632,7 @@ void setup() {
 		autoIdleTuneThreshold = EEPROM.read(9);
 	}
 
-	smokechamberThermostat.init(tempSetpoint, tempDeadband, smokechamberThermostat.HeatCool, &AC2.webserver);
+	ThermostatControl.init(tempSetpoint, tempDeadband, ThermostatControl.HeatCool, &AC2.webserver);
 
 #ifdef bluetoothProbe
 	setLogLevel();
